@@ -227,7 +227,8 @@
                                                                      {:key :admin
                                                                       :label (tr [:document-title :admin])
                                                                       :href "#/admin"})
-                                                                   (when (user-is? app :authority-group-admin?)
+                                                                   ; Change detection is disabled.
+                                                                   #_ (when (user-is? app :authority-group-admin?)
                                                                      {:key :admin-detected-changes
                                                                       :label (tr [:document-title :admin-detected-changes])
                                                                       :href "#/admin/detected-changes/detect-changes"})
@@ -340,7 +341,7 @@
                                  [:traffic-situation
                                   :feedback-channel
                                   :train-departures
-                                  :skynavx
+                                  :fintraffic-app
                                   :digitraffic
                                   :digitransit
                                   :finap])]

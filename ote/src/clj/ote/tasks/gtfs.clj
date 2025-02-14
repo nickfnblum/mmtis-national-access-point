@@ -29,6 +29,9 @@
 (defqueries "ote/tasks/gtfs.sql")
 (defqueries "ote/services/transit_changes.sql")
 
+(declare services-for-nightly-change-detection select-gtfs-urls-update select-gtfs-url-for-service
+         select-gtfs-url-for-interface upcoming-changes valid-detected-route-changes)
+
 (def daily-update-time (t/from-time-zone (t/today-at 0 5)
                                          (DateTimeZone/forID "Europe/Helsinki")))
 
@@ -266,7 +269,10 @@
            (filter night-time?
                    (drop 1 (periodic-seq (t/now) (t/minutes 1))))
            (fn [_]
-             (#'update-one-gtfs! config db email true)))
+             (#'update-one-gtfs! config db email
+               ;; Do not send anyting to s3 in local environment
+               (if (:dev-mode? config) false true))))
+         ;; Change detection has been disabled.
          (chime-at (tasks-util/daily-at 5 15)
                    (fn [_]
                      (detect-new-changes-task config db (time/now) false)))

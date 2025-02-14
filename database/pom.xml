@@ -23,20 +23,31 @@
             <plugin>
                 <groupId>org.flywaydb</groupId>
                 <artifactId>flyway-maven-plugin</artifactId>
-                <version>4.1.2</version>
+                <version>10.10.0</version>
                 <configuration>
+                    <table>schema_version</table>
                     <baselineOnMigrate>true</baselineOnMigrate>
-                    <allowMixedMigrations>false</allowMixedMigrations>
+                    <mixed>false</mixed>
                     <baselineVersion>0</baselineVersion>
                     <url>${databaseUrl}</url>
                     <user>${databaseUser}</user>
                     <password>${databasePassword}</password>
+                    <schemas>
+                        <schema>${databaseSchema}</schema>
+                    </schemas>
                 </configuration>
                 <dependencies>
                     <dependency>
+                        <groupId>org.flywaydb</groupId>
+                        <artifactId>flyway-database-postgresql</artifactId>
+                        <version>10.10.0</version>
+                        <scope>runtime</scope>
+                    </dependency>
+
+                    <dependency>
                         <groupId>org.postgresql</groupId>
                         <artifactId>postgresql</artifactId>
-                        <version>42.1.4</version>
+                        <version>42.7.3</version>
                     </dependency>
                 </dependencies>
             </plugin>
@@ -54,6 +65,7 @@
             <properties>
                 <databaseUrl>jdbc:postgresql://localhost/napote</databaseUrl>
                 <databaseUser>napote</databaseUser>
+                <databaseSchema>public</databaseSchema>
             </properties>
         </profile>
 
@@ -62,6 +74,7 @@
             <properties>
                 <databaseUrl>jdbc:postgresql://localhost/napote_template</databaseUrl>
                 <databaseUser>napote</databaseUser>
+                <databaseSchema>public</databaseSchema>
             </properties>
         </profile>
 
@@ -71,6 +84,7 @@
             <properties>
                 <databaseUrl>jdbc:postgresql://localhost/napotetest_template</databaseUrl>
                 <databaseUser>napotetest</databaseUser>
+                <databaseSchema>public</databaseSchema>
             </properties>
         </profile>
 
@@ -80,6 +94,7 @@
             <properties>
                 <databaseUrl>jdbc:postgresql://localhost/napotetest_template</databaseUrl>
                 <databaseUser>postgres</databaseUser>
+                <databaseSchema>public</databaseSchema>
             </properties>
         </profile>
     </profiles>
