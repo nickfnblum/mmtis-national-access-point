@@ -6,13 +6,10 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [java-time :as jt]
-            [ote.db.netex :as netex]
             [ote.db.transport-operator :as t-operator]
+            [ote.util.throttle :as throttle]
             [specql.core :as specql]
             [taoensso.timbre :as log]))
-
-
-(def conversion-rule-name "gtfs2netex.fintraffic")
 
 (def ^:private auth-data (atom {}))
 
@@ -63,25 +60,36 @@
                      ::specql/order-direction :descending
                      ::specql/limit           1}))))
 
+(def ^:private rate-limiter-hit-delay
+  "Returns in milliseconds the wait time for single call based on rate limiter configuration."
+  (let [timespan         (* 5 60 1000)  ; total timespan for calls is 5 minutes
+        allowed-requests 1000           ; how many requests allowed per timespan
+        delay-per-call   (/ timespan allowed-requests)]
+    delay-per-call))
+
 (defn ^:private api-call
   "Adds common headers, handles authentication etc. for TIS VACO API calls. Returns nil on failure to allow punning."
   [config call url body params]
-  (let [endpoint                      (if (str/starts-with? url (:api-base-url config))
-                                        url
-                                        (str (:api-base-url config) url))]
-    (try
-      (let [{:keys [access-token]}        (swap! auth-data update-expired-token config)
-            {:keys [status headers body]} (call endpoint
-                                                (merge
-                                                  {:headers      {"User-Agent"    "Fintraffic FINAP / 0.1"
-                                                                  "Authorization" (str "Bearer " access-token)}}
-                                                  params
-                                                  (when body {:body (when body (cheshire/generate-string body))})))]
-        (log/info (str "API call to " endpoint " returned " status))
-        body)
-      (catch Exception e
-        (log/warn e (str "Failed API call " endpoint))
-        nil))))
+  (throttle/with-throttle-ms
+    rate-limiter-hit-delay
+    (let [endpoint                      (if (str/starts-with? url (:api-base-url config))
+                                          url
+                                          (str (:api-base-url config) url))]
+      (try
+        (let [{:keys [access-token]}        (swap! auth-data update-expired-token config)
+              {:keys [status headers body]} (call endpoint
+                                                  (merge
+                                                    {:headers      {"User-Agent"    "Fintraffic FINAP / 0.1"
+                                                                    "Authorization" (str "Bearer " access-token)}}
+                                                    ; this is an actual API which uses HTTP statuses for a reason,
+                                                    ; so allow all non 5xx to be handled properly
+                                                    (merge {:unexceptional-status #(<= 200 % 499)} params)
+                                                    (when body {:body (when body (cheshire/generate-string body))})))]
+          (log/info (str "API call to " endpoint " returned " status))
+          body)
+        (catch Exception e
+          (log/warn e (str "Failed API call " endpoint))
+          nil)))))
 
 (defn api-queue-create
   [config payload]
@@ -116,29 +124,49 @@
    ; :tis-vaco config root from config.edn
    config
    ; interface
-   {:keys [url operator-id operator-name ts-id last-import-date license id data-content]}
+   {:keys [url
+           operator-id
+           operator-name
+           ts-id
+           last-import-date
+           license
+           id
+           data-content]}
    ; conversion-meta
-   {:keys [gtfs-file gtfs-filename gtfs-basename external-interface-description-id external-interface-data-content service-id package-id operator-name]}]
-  (let [package   (find-package db id package-id)
+   {:keys [gtfs-file
+           gtfs-filename
+           gtfs-basename
+           external-interface-description-id
+           external-interface-data-content
+           service-id
+           package-id
+           operator-name
+           contact-email]}
+   ; payload
+   {:keys [format validations conversions]}]
+  (let [context   (str "FINAP (" operator-id "/" service-id "/" external-interface-description-id ")")
+        package   (find-package db id package-id)
         new-entry (api-queue-create config {:url         url
-                                            :format      "gtfs"
+                                            :format      format
                                             :businessId  (fetch-business-id db operator-id)
                                             :etag        (when package (:gtfs/etag package))
-                                            :name        (str operator-name " / GTFS / FINAP (" operator-id "/" service-id "/" external-interface-description-id ")")
-                                            :validations [{:name   "gtfs.canonical"
-                                                           :config {}}]
-                                            :conversions [{:name   conversion-rule-name
-                                                           :config {}}]
-                                            :metadata    {:caller        "FINAP"
-                                                          :operator-id   operator-id
-                                                          :operator-name operator-name
-                                                          :service-id    service-id
-                                                          :interface-id  id
-                                                          :package-id    package-id}})]
+                                            :name        (str operator-name " / GTFS / " context)
+                                            :validations (or validations [])
+                                            :conversions (or conversions [])
+                                            :context     (str operator-id "/" service-id "/" id)
+                                            :metadata    (merge {:caller        "FINAP"
+                                                                 :operator-id   operator-id
+                                                                 :operator-name operator-name
+                                                                 :service-id    service-id
+                                                                 :interface-id  id
+                                                                 :package-id    package-id}
+                                                                (when contact-email {:contact-email contact-email}))})]
     (when new-entry
       (try
+        ;; Add vaco information to the GTFS package when query is made.
         (specql/update! db :gtfs/package
-                        {:gtfs/tis-entry-public-id (get-in new-entry ["data" "publicId"])}
+                        {:gtfs/tis-entry-public-id (get-in new-entry ["data" "publicId"])
+                         :gtfs/tis-magic-link (get-in new-entry ["links" "refs" "magic" "href"])}
                         {:gtfs/id (:gtfs/id package)})
         new-entry
         (catch Exception e
@@ -152,5 +180,5 @@
   [db config interface-id package-id]
   (when-let [package (find-package db interface-id package-id)]
     (-> package
-        (select-keys [:gtfs/tis-entry-public-id :gtfs/tis-success :gtfs/tis-complete])
+        (select-keys [:gtfs/tis-entry-public-id :gtfs/tis-success :gtfs/tis-complete :gtfs/tis-magic-link])
         (assoc :api-base-url (get-in config [:tis-vaco :api-base-url])))))

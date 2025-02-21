@@ -708,8 +708,11 @@
   :desc-to-add-new-operator-5 "Hittade du inte rätt tjänsteoperatör eller är du huvudanvändare?"
   :to-add-new-operator "Mikäli lisäät uuden palveluntuottajan, voit tehdä sen "
   :to-add-new-operator-tab " välilehdestä."
-  :operator-dont-have-any-services "Du har nu lagt till en tjänsteleverantör i NAP. Lägg nu till information om de mobilitetstjänster du tillhandahåller. Om du tillhandahåller mer än en typ av mobilitetstjänst, lägg först till en tjänst. Du kan sedan lägga till följande tjänst."}
-
+  :operator-dont-have-any-services "Du har nu lagt till en tjänsteleverantör i NAP. Lägg nu till information om de mobilitetstjänster du tillhandahåller. Om du tillhandahåller mer än en typ av mobilitetstjänst, lägg först till en tjänst. Du kan sedan lägga till följande tjänst."
+  :rae-discontinued-info1 "MeriRAE (Sjöfartens rutt- och schemaredigerare) som en del av Finap- katalogen tas ur bruk den 30 april 2025. Den nya adressen till rutt- och schemaredigeraren för sjöfart och övrig sjötrafik är "
+  :rae-discontinued-info-link "https://rae.fintraffic.fi/ui/"
+  :rae-discontinued-info-desc "rae.fintraffic.fi."
+  :rae-discontinued-info2 "Vi rekommenderar att ni börjar använda den nya RAE-tjänsten redan före april."}
 
  :organization-page
  {:address-postal "Postadress"
@@ -1294,7 +1297,14 @@ Tjänsterna beskrivs var för sig på egen blankett. I exemplet fyller man i bå
   :transport-type "Trafikslag"
   :homepage "www-sidor"
   :ote-generated-url "NeTEx-gränssnitt som genererats i NAP"
-  :vaco-generated-url "NeTEx-gränssnitt som genererats i VACO"
+  :vaco-quality-details-title "Gränssnitt kvalitet"
+  :vaco-validated-feed "Gränssnitt som validerats i VACO"
+  :vaco-converted-feed "Konverteringens status"
+  :vaco-magic-link "Visa i valideringstänsten"
+  :vaco-links-section-title "Valideringstjänst"
+  :vaco-given-interface-has-problem "Ett problem med att använda det angivna gränssnittet.\""
+  :vaco-validation-in-progress "Valideringen är inte ännu slutförd."
+  :download-netex "Ladda ner den konverterade filen"
   :no-homepage "Det har ännu inte förts in någon webbadress i tjänsten"}
 
  :login
@@ -1755,14 +1765,15 @@ Tjänsterna beskrivs var för sig på egen blankett. I exemplet fyller man i bå
   :YT "Mayotte"
   :ZA "Sydafrika"
   :ZM "Zambia"
-  :ZW "Zimbabwe"}
+  :ZW "Zimbabwe"
+  :AN "Karibiska Nederländerna"}
 
  ;; Fintraffic common quicklink header
  :quicklink-header
  {:traffic-situation "Trafikläget"
   :feedback-channel "Responskanalen"
   :train-departures "Tågavgångar"
-  :skynavx "Drone-tjänster"
+  :fintraffic-app "Fintraffic Appen"
   :digitraffic "Digitraffic"
   :digitransit "Digitransit"
   :finap "NAP"}
@@ -1817,11 +1828,9 @@ Tjänsterna beskrivs var för sig på egen blankett. I exemplet fyller man i bå
                                                              :add-button  "Lägg till"
                                                              :save-button "Spara"}}}}
 
- ; TIS VACO service integration and announcement related translations
- :tis-vaco {:announcement {:title "Finap.fi katalogen förnyas i januari-februari 2024."
-                           :content "Fintraffic publicerar en validerings- och konverteringstjänst (VACO) för att förbättra korrektheten och kvaliteten på reseinformationen. Parter som publicerar reseinformation i tjänstekatalogen kommer i framtiden att få meddelanden om sammanfattningen av sina datautgivningar och kvalitetsrapporter. Mer information "
-                           :link-url "https://www.fintraffic.fi/fi/fintraffic/validointi-ja-konvertointipalvelu"
-                           :link-label "https://www.fintraffic.fi/fi/fintraffic/validointi-ja-konvertointipalvelu"}}
+ :downtime-apology {:title "Finap-felsituationen har upphört."
+                    :content "Om du har gjort ändringar måndagen den 5 augusti 2024, kontrollera om dina uppgifter har uppdaterats korrekt. Gör ändringarna igen om det behövs. Vi ber om ursäkt för besväret som orsakats av tjänstavbrottet."}
+
  :phone-countrycodes [{:country :AD :code "+376"}
                       {:country :AE :code "+971"}
                       {:country :AF :code "+93"}

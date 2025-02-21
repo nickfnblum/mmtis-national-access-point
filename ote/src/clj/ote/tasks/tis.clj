@@ -3,6 +3,7 @@
             [chime :as chime]
             [clj-time.core :as t]
             [clj-time.periodic :as periodic]
+            [clojure.string :as str]
             [com.stuartsierra.component :as component]
             [jeesql.core :refer [defqueries]]
             [ote.db.lock :as lock]
@@ -10,10 +11,15 @@
             [ote.netex.netex :as netex]
             [ote.tasks.util :as tasks-util]
             [ote.util.feature :as feature]
+            [ote.util.tis-configs :as tis-configs]
             [specql.core :as specql]
-            [taoensso.timbre :as log]))
+            [taoensso.timbre :as log]
+            [ote.services.operators :as operators-q]))
 
 (defqueries "ote/tasks/tis.sql")
+
+(declare fetch-external-interface-for-package select-packages-without-finished-results fetch-count-service-packages
+         update-tis-results! list-all-external-interfaces)
 
 (defn ^:private copy-to-s3
   [config link filename]
@@ -22,7 +28,11 @@
       (let [bucket    (get-in config [:netex :bucket])
             available (.available in)]
         (log/info (str "Copying file to " bucket "/" filename " (" available " bytes available)"))
-        (s3/put-object bucket filename in {:content-length available})
+        ;; Try and catch put. S3PUT doesn't work in localhost by default (it can be enabled), so we need to catch the exception.
+        (try
+          (s3/put-object bucket filename in {:content-length available})
+          (catch Exception e
+            (log/error e "Failed to copy file to S3")))
         filename))))
 
 (defn get-filename
@@ -44,11 +54,17 @@
         (fn [package]
           (let [{package-id :id entry-public-id :tis-entry-public-id} (select-keys package [:id :tis-entry-public-id])]
             (log/info (str "Polling package " package-id "/" entry-public-id " for results"))
-            (let [entry     (tis-vaco/api-fetch-entry (:tis-vaco config) entry-public-id)
-                  complete? (let [status (get-in entry ["data" "status"])]
-                              (not (or (= status "received")
-                                       (= status "processing"))))
-                  result    (get-in entry ["links" tis-vaco/conversion-rule-name "result"])]
+            (let [entry      (tis-vaco/api-fetch-entry (:tis-vaco config) entry-public-id)
+                  complete?  (let [error  (get-in entry ["error"])
+                                   status (get-in entry ["data" "status"])]
+                               (when (some? error)
+                                 (log/info (str "API error when fetching entry " entry-public-id ": " error)))
+                               (or (some? error)
+                                   (not (or (nil? status)
+                                            (= status "received")
+                                            (= status "processing")))))
+                  result     (get-in entry ["links" "gtfs2netex.fintraffic" "result"])
+                  magic-link (get-in entry ["links" "refs" "magic" "href"])]
               (if result
                 (do
                   (log/info (str "Result " result " found for package " package-id "/" entry-public-id ", copying blob to S3"))
@@ -61,18 +77,19 @@
                       {:service-id                        (:transport-service-id package)
                        :external-interface-description-id (:external-interface-description-id package)
                        :external-interface-data-content   #{:route-and-schedule}})
+                    (log/info "Netex conversion status updated.")
                     (update-tis-results! db {:tis-entry-public-id entry-public-id
                                              :tis-complete        true
-                                             :tis-success         true})))
-                (if complete?
+                                             :tis-success         true
+                                             :tis-magic-link      magic-link})
+                    (log/info "VACO integration status updated.")))
+                (when complete?
                   (do
                     (log/info (str "No results found for package " package-id "/" entry-public-id " but the entry is complete -> no result available"))
                     (update-tis-results! db {:tis-entry-public-id entry-public-id
                                              :tis-complete        true
-                                             :tis-success         false}))
-                  (log/info (str "Package " package-id "/" entry-public-id " processing is not yet complete on TIS side."))))))
-
-          )
+                                             :tis-success         false
+                                             :tis-magic-link      nil})))))))
         packages))))
 
 (defn ^:private interface-latest-package [db interface-id]
@@ -95,8 +112,34 @@
                      :gtfs/transport-operator-id operator-id
                      :gtfs/transport-service-id service-id
                      :gtfs/created (java.sql.Timestamp. (System/currentTimeMillis))
-                     :gtfs/license license
+                     :gtfs/license (or license "CC BY 4.0")
                      :gtfs/external-interface-description-id external-interface-description-id})))
+
+(defn submit-single-package [config db package-id]
+  (let [;; Get interface for package
+        interface (first (fetch-external-interface-for-package db {:package-id package-id}))
+        external-interface-description-id (:id interface)
+        format (str/lower-case (:format interface))
+        service-id (:transport-service-id interface)
+        operator (first (operators-q/fetch-operator-by-service-id db {:service-id service-id}))
+        operator-id (:id operator)
+        package (create-package db operator-id service-id external-interface-description-id (:license interface))
+        _ (log/info (str "Submit single package " (:gtfs/id package) " for " operator-id "/" service-id "/" external-interface-description-id " to TIS VACO for processing"))
+        result (tis-vaco/queue-entry db (:tis-vaco config)
+                                     {:url (:url interface)
+                                      :operator-id operator-id
+                                      :id external-interface-description-id}
+                                     {:service-id service-id
+                                      :package-id (:gtfs/id package)
+                                      :external-interface-description-id external-interface-description-id
+                                      :operator-name (:name operator)
+                                      :contact-email (:email operator)}
+                                     (merge {:format format}
+                                            (tis-configs/vaco-create-payload format)))
+        _ (log/info "Single package result:" result)]
+    result
+    ; return nil to allow early collection of intermediate results
+    nil))
 
 (defn submit-known-interfaces!
   [config db]
@@ -108,7 +151,7 @@
         (try
           ; execute sequentially for side effects only, discarding intermediate entries to help garbage collector do its thing
           (doseq [interface (list-all-external-interfaces db)]
-            (let [{:keys [operator-id operator-name service-id external-interface-description-id url license]} interface
+            (let [{:keys [operator-id operator-name service-id external-interface-description-id url license format contact-email]} interface
                   package (create-package db operator-id service-id external-interface-description-id license)]
               (log/info (str "Submit package " (:gtfs/id package) " for " operator-id "/" service-id "/" external-interface-description-id " to TIS VACO for processing"))
               (tis-vaco/queue-entry db (:tis-vaco config)
@@ -118,7 +161,10 @@
                                     {:service-id                        service-id
                                      :package-id                        (:gtfs/id package)
                                      :external-interface-description-id external-interface-description-id
-                                     :operator-name                     operator-name})
+                                     :operator-name                     operator-name
+                                     :contact-email                     contact-email}
+                                    (merge {:format format}
+                                           (tis-configs/vaco-create-payload format)))
               ; return nil to allow early collection of intermediate results
               nil))
           (catch Exception e
